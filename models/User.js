@@ -84,11 +84,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 // Générer un JWT
+// ✅ CORRECTION : Ajout du fallback '30d' pour éviter l'erreur expiresIn
 UserSchema.methods.getSignedJwtToken = function () {
   return jwt.sign(
     { id: this._id, role: this.role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE }
+    { expiresIn: process.env.JWT_EXPIRE || '30d' } // ✅ MODIFIÉ ICI
   );
 };
 
