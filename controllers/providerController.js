@@ -42,12 +42,16 @@ exports.getProviderProfile = asyncHandler(async (req, res, next) => {
   // Le middleware d'authentification a déjà ajouté l'utilisateur à req.user
   const providerId = req.user.id;
   
+  console.log('🔍 Récupération profil pour provider ID:', providerId);
+  
   // Trouver le prestataire et ses données associées
   const provider = await Provider.findById(providerId);
   
   if (!provider) {
     return next(new ErrorResponse('Prestataire non trouvé', 404));
   }
+  
+  console.log('✅ Provider trouvé - Availability:', JSON.stringify(provider.availability, null, 2));
   
   // Récupérer les demandes associées à ce prestataire
   const requests = await Request.find({ provider: providerId })
@@ -125,6 +129,7 @@ exports.updateProviderProfile = asyncHandler(async (req, res, next) => {
   });
 });
 
+// ✅ SOLUTION 1 : FONCTION CORRIGÉE
 // @desc    Mettre à jour les disponibilités du prestataire
 // @route   PUT /api/providers/availability
 // @access  Private (Prestataire uniquement)
@@ -132,19 +137,30 @@ exports.updateAvailability = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
   const { availability } = req.body;
 
+  console.log('📅 Mise à jour disponibilités pour provider:', providerId);
+  console.log('📅 Données reçues:', JSON.stringify(availability, null, 2));
+
   if (!availability) {
     return next(new ErrorResponse('Veuillez fournir des disponibilités valides', 400));
   }
 
-  const provider = await Provider.findByIdAndUpdate(
-    providerId,
-    { availability },
-    { new: true, runValidators: true }
-  );
-
+  // ✅ CORRECTION : Utiliser findById + save() au lieu de findByIdAndUpdate
+  const provider = await Provider.findById(providerId);
+  
   if (!provider) {
+    console.log('❌ Provider non trouvé avec ID:', providerId);
     return next(new ErrorResponse('Prestataire non trouvé', 404));
   }
+
+  console.log('✅ Provider trouvé, anciennes disponibilités:', JSON.stringify(provider.availability, null, 2));
+
+  // Mettre à jour les disponibilités
+  provider.availability = availability;
+  
+  // Sauvegarder avec save() pour garantir la persistance
+  await provider.save();
+
+  console.log('✅ Disponibilités sauvegardées en base:', JSON.stringify(provider.availability, null, 2));
 
   res.status(200).json({
     success: true,
@@ -274,3 +290,5 @@ exports.completeJob = asyncHandler(async (req, res, next) => {
     data: job
   });
 });
+
+module.exports = exports;
