@@ -10,57 +10,35 @@ const asyncHandler = require('../middleware/async');
 exports.getProviders = asyncHandler(async (req, res, next) => {
   const { serviceType, serviceArea, minRating } = req.query;
   
-  // Mapper les types de service du frontend vers le modèle
-  const serviceTypeMapping = {
-    'home': 'maison',
-    'office': 'bureau', 
-    'building': 'immeuble',
-    'other': 'autre'
-  };
+  console.log('🔍 ===== RECHERCHE PRESTATAIRES =====');
+  console.log('   serviceType demandé:', serviceType);
+  console.log('   serviceArea:', serviceArea);
+  console.log('   minRating:', minRating);
   
   // Construire le filtre de recherche
   const filter = {};
   
-  // Filtrer par type de service si spécifié
+  // Filtrer par type de service si spécifié (chercher dans serviceTypes)
   if (serviceType) {
-    const mappedServiceType = serviceTypeMapping[serviceType] || serviceType;
-    // Chercher dans serviceTypes OU dans serviceDetails
-    filter.$or = [
-      { serviceTypes: mappedServiceType },
-      { 'serviceDetails.type': mappedServiceType }
-    ];
+    filter.serviceTypes = serviceType;
+    console.log('   Filtre serviceTypes:', serviceType);
   }
   
   // Filtrer par zone de service si spécifiée
   if (serviceArea) {
     filter.serviceAreas = serviceArea;
+    console.log('   Filtre serviceAreas:', serviceArea);
   }
   
-  // Debug: Afficher le filtre utilisé
-  console.log('Filtre appliqué:', JSON.stringify(filter, null, 2));
-  
-  // Récupérer tous les prestataires pour debug
-  const allProviders = await Provider.find({})
-    .select('firstName lastName serviceTypes serviceDetails services serviceAreas hourlyRate');
-  
-  console.log('Nombre total de prestataires en base:', allProviders.length);
-  console.log('Exemple de structure d\'un prestataire:');
-  if (allProviders.length > 0) {
-    console.log({
-      firstName: allProviders[0].firstName,
-      serviceTypes: allProviders[0].serviceTypes,
-      serviceDetails: allProviders[0].serviceDetails,
-      services: allProviders[0].services
-    });
-  }
+  console.log('   Filtre MongoDB final:', JSON.stringify(filter, null, 2));
   
   // Récupérer les prestataires selon les filtres
   let providers = await Provider.find(filter)
-    .select('firstName lastName companyName profilePicture services serviceTypes serviceDetails serviceAreas hourlyRate');
+    .select('firstName lastName companyName profilePicture serviceTypes serviceDetails serviceAreas');
     
-  console.log('Prestataires trouvés avec le filtre:', providers.length);
+  console.log('   Nombre de prestataires trouvés:', providers.length);
   
-  // Récupérer les avis moyens pour chaque prestataire
+  // Récupérer les avis moyens et calculer le prix dynamiquement pour chaque prestataire
   const providersWithRatings = await Promise.all(
     providers.map(async (provider) => {
       // Calculer la note moyenne pour ce prestataire
@@ -75,6 +53,35 @@ exports.getProviders = asyncHandler(async (req, res, next) => {
       const providerObject = provider.toObject();
       providerObject.averageRating = averageRating;
       providerObject.reviewCount = reviews.length;
+      
+      // ✅ NOUVEAU : Calculer dynamiquement le prix à afficher
+      if (serviceType && providerObject.serviceDetails && providerObject.serviceDetails.length > 0) {
+        // Chercher le prix spécifique pour ce service
+        const serviceDetail = providerObject.serviceDetails.find(
+          detail => detail.type === serviceType
+        );
+        
+        if (serviceDetail) {
+          // Utiliser le prix spécifique du service recherché
+          providerObject.hourlyRate = serviceDetail.hourlyRate;
+          console.log(`   ✅ ${providerObject.firstName}: Tarif ${serviceType} = ${serviceDetail.hourlyRate}₪`);
+        } else {
+          // Pas de prix pour ce service (ne devrait pas arriver car on filtre par serviceTypes)
+          providerObject.hourlyRate = 0;
+          console.log(`   ⚠️ ${providerObject.firstName}: Pas de tarif pour ${serviceType}`);
+        }
+      } else if (!serviceType && providerObject.serviceDetails && providerObject.serviceDetails.length > 0) {
+        // Si aucun service spécifié, calculer le prix moyen à la volée
+        const avgPrice = providerObject.serviceDetails.reduce(
+          (sum, s) => sum + s.hourlyRate, 
+          0
+        ) / providerObject.serviceDetails.length;
+        providerObject.hourlyRate = Math.round(avgPrice * 100) / 100; // Arrondir à 2 décimales
+        console.log(`   ℹ️ ${providerObject.firstName}: Prix moyen calculé = ${providerObject.hourlyRate}₪`);
+      } else {
+        providerObject.hourlyRate = 0;
+        console.log(`   ⚠️ ${providerObject.firstName}: Aucun tarif disponible`);
+      }
       
       return providerObject;
     })
@@ -92,15 +99,16 @@ exports.getProviders = asyncHandler(async (req, res, next) => {
   // Trier par note moyenne (décroissante)
   finalProviders.sort((a, b) => b.averageRating - a.averageRating);
   
-  console.log('Prestataires finaux à envoyer:', finalProviders.length);
-  console.log('Données envoyées au frontend:', {
-    success: true,
-    count: finalProviders.length,
-    firstProvider: finalProviders[0] ? {
+  console.log('   ✅ Prestataires finaux à envoyer:', finalProviders.length);
+  if (finalProviders.length > 0) {
+    console.log('   Exemple de prestataire:', {
       firstName: finalProviders[0].firstName,
-      hourlyRate: finalProviders[0].hourlyRate
-    } : 'Aucun'
-  });
+      serviceType: serviceType,
+      hourlyRate: finalProviders[0].hourlyRate,
+      serviceDetails: finalProviders[0].serviceDetails
+    });
+  }
+  console.log('==========================================\n');
   
   res.status(200).json({
     success: true,

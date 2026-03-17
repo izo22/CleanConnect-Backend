@@ -16,6 +16,15 @@ router.put('/profile', protect, authorize('provider'), providerController.update
 // Routes pour les disponibilités
 router.put('/availability', protect, authorize('provider'), providerController.updateAvailability);
 
+// ✅ Routes pour gérer les services
+router.post('/services', protect, authorize('provider'), providerController.addService);
+router.put('/services/:id', protect, authorize('provider'), providerController.updateService);
+router.delete('/services/:id', protect, authorize('provider'), providerController.deleteService);
+
+// ✅ Routes optimisées pour le dashboard
+router.get('/dashboard/stats', protect, authorize('provider'), providerController.getDashboardStats);
+router.get('/dashboard/today', protect, authorize('provider'), providerController.getTodayJobs);
+
 // Routes pour les missions
 router.get('/jobs', protect, authorize('provider'), providerController.getJobs);
 router.get('/jobs/:id', protect, authorize('provider'), providerController.getJob);

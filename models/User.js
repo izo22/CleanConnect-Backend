@@ -1,4 +1,6 @@
 // models/User.js
+// ✅ CE FICHIER EST DÉJÀ CORRECT
+
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -45,6 +47,15 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Champs address et city pour la compatibilité avec le frontend
+  address: {
+    type: String,
+    default: ''
+  },
+  city: {
+    type: String,
+    default: ''
+  },
   password: {
     type: String,
     required: true,
@@ -57,10 +68,30 @@ const UserSchema = new mongoose.Schema({
     default: 'client'
   },
   addresses: [AddressSchema],
+  // Vidéo de la propriété
+  propertyVideo: {
+    url: {
+      type: String,
+      default: null
+    },
+    publicId: {
+      type: String,
+      default: null
+    },
+    uploadedAt: {
+      type: Date,
+      default: null
+    }
+  },
   language: {
     type: String,
     enum: ['fr', 'en', 'he', 'ar'],
     default: 'he'
+  },
+  // Token pour les notifications push
+  pushToken: {
+    type: String,
+    default: null
   },
   createdAt: {
     type: Date,
@@ -83,13 +114,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Générer un JWT
-// ✅ CORRECTION : Ajout du fallback '30d' pour éviter l'erreur expiresIn
+// ✅ CORRECT : Génération JWT avec 'role'
 UserSchema.methods.getSignedJwtToken = function () {
   return jwt.sign(
-    { id: this._id, role: this.role },
+    { id: this._id, role: this.role },  // ✅ Déjà correct
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '30d' } // ✅ MODIFIÉ ICI
+    { expiresIn: process.env.JWT_EXPIRE || '30d' }
   );
 };
 

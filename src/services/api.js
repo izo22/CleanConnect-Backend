@@ -1,25 +1,20 @@
 // src/services/api.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import { API_URL } from '@env';
 
 // Créer une instance axios avec la configuration de base
 const api = axios.create({
-  baseURL: Platform.OS === 'web' 
-    ? 'http://localhost:5000/api'  // Pour le web
-    : API_URL || 'http://10.0.2.2:5000/api', // Pour mobile
+//  baseURL: 'https://cleanconnect-backend-tulh.onrender.com/api',
+baseURL: 'https://cleanconnect-backend-tulh.onrender.com/api',
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 secondes maximum pour la requête
+  timeout: 90000, // 90 secondes pour gérer les cold starts de Render
 });
 
-// Intercepteur pour ajouter le token d'authentification et journaliser les requêtes
+// Intercepteur pour ajouter le token d'authentification
 api.interceptors.request.use(
   async (config) => {
-    console.log('Requête envoyée à :', config.url, 'avec les données :', config.data);
-    
     const token = await AsyncStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -27,25 +22,16 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('Erreur de requête :', error);
     return Promise.reject(error);
   }
 );
 
-// Intercepteur pour journaliser les réponses
+// Intercepteur pour gérer les réponses
 api.interceptors.response.use(
   response => {
-    console.log('Réponse reçue de :', response.config.url, 'statut :', response.status);
     return response;
   },
   error => {
-    console.error('Erreur de réponse :', error.message);
-    if (error.response) {
-      console.error('Statut :', error.response.status);
-      console.error('Données d\'erreur :', error.response.data);
-    } else if (error.request) {
-      console.error('Pas de réponse reçue, problème de réseau probable');
-    }
     return Promise.reject(error);
   }
 );
@@ -164,7 +150,6 @@ export const userService = {
   },
 };
 
-// Service prestataire
 // Service prestataire
 export const providerService = {
   // Obtenir le profil du prestataire

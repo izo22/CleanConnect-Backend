@@ -1,4 +1,4 @@
-// server.js - Version corrigée
+// server.js - Version avec nettoyage automatique et logs
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,6 +6,9 @@ const dotenv = require('dotenv');
 
 // Charger les variables d'environnement
 dotenv.config();
+
+// ✅ NOUVEAU: Importer le service de nettoyage
+const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 // Initialiser l'application Express
 const app = express();
@@ -19,22 +22,37 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// ✅ LOGS pour débugger les requêtes
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.url}`);
+  next();
+});
+
 // Connexion à la base de données
 const connectDB = require('./config/db');
 connectDB();
+
+// ✅ NOUVEAU: Démarrer le scheduler après connexion DB
+// Attendre que mongoose soit connecté
+mongoose.connection.once('open', () => {
+  console.log('✅ MongoDB connecté');
+  
+  // Démarrer le nettoyage automatique
+  startCleanupScheduler();
+});
 
 // Importer les routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const providerRoutes = require('./routes/providerRoutes');
-const publicProviderRoutes = require('./routes/publicProviderRoutes'); // AJOUT
+const publicProviderRoutes = require('./routes/publicProviderRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 
 // Utiliser les routes
+app.use('/api/public/providers', publicProviderRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/providers', providerRoutes);
-app.use('/api/public/providers', publicProviderRoutes); // AJOUT
 app.use('/api/bookings', bookingRoutes);
 
 // Route de base
@@ -52,7 +70,7 @@ const PORT = process.env.PORT || 5000;
 
 // Démarrer le serveur
 app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+  console.log(`🚀 Serveur démarré sur le port ${PORT}`);
 });
 
 module.exports = app;
