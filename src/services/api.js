@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Créer une instance axios avec la configuration de base
 const api = axios.create({
-//  baseURL: 'https://cleanconnect-backend-tulh.onrender.com/api',
 baseURL: 'https://cleanconnect-backend-tulh.onrender.com/api',
   headers: {
     'Content-Type': 'application/json',

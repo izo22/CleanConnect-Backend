@@ -1,5 +1,5 @@
 // controllers/providerController.js
-// ✅ VERSION CORRIGÉE: Fix incohérence nom de champ date + serviceDetails
+// ✅ VERSION CORRIGÉE: Fix incohérence nom de champ date + serviceDetails + filtre ville backend
 
 const Provider = require('../models/Provider');
 const Request = require('../models/Request');
@@ -11,32 +11,47 @@ const ErrorResponse = require('../utils/errorResponse');
 const asyncHandler = require('../middleware/async');
 
 // @desc    Récupérer tous les prestataires (pour recherche client)
-// @route   GET /api/providers
+// @route   GET /api/providers?city=ירושלים&serviceType=home
 // @access  Public
 exports.getAllProviders = asyncHandler(async (req, res, next) => {
-  console.log('📡 ===== RÉCUPÉRATION DE TOUS LES PRESTATAIRES =====');
-  
-  const providers = await Provider.find({ role: 'provider' })
+  const { city, serviceType } = req.query;
+
+  console.log('📡 ===== RÉCUPÉRATION DES PRESTATAIRES =====');
+  console.log('   Ville:', city || 'toutes');
+  console.log('   Service:', serviceType || 'tous');
+
+  const query = { role: 'provider' };
+
+  // ✅ Filtre par ville (matching partiel pour gérer "תל אביב" vs "תל אביב-יפו")
+  if (city) {
+    query.serviceAreas = {
+      $elemMatch: {
+        $regex: city.trim(),
+        $options: 'i'
+      }
+    };
+  }
+
+  // ✅ Filtre par type de service
+  if (serviceType) {
+    query.serviceTypes = {
+      $elemMatch: {
+        $regex: serviceType.trim(),
+        $options: 'i'
+      }
+    };
+  }
+
+  const providers = await Provider.find(query)
     .select('firstName lastName email phone hourlyRate rating reviewCount bio serviceTypes serviceAreas profilePicture serviceDetails availability')
     .sort({ rating: -1, createdAt: -1 });
-  
-  console.log(`✅ ${providers.length} prestataires trouvés dans MongoDB\n`);
-  
-  const mappedProviders = providers.map(provider => {
-    const obj = provider.toObject();
-    
-    const serviceCities = obj.serviceAreas || [];
-    
-    return {
-      ...obj,
-      serviceCities: serviceCities
-    };
-  });
-  
+
+  console.log(`✅ ${providers.length} prestataires trouvés`);
+
   res.status(200).json({
     success: true,
-    count: mappedProviders.length,
-    data: mappedProviders
+    count: providers.length,
+    data: providers.map(p => ({ ...p.toObject(), serviceCities: p.serviceAreas || [] }))
   });
 });
 
@@ -66,13 +81,12 @@ exports.getProviderProfile = asyncHandler(async (req, res, next) => {
     .populate('client', 'firstName lastName')
     .sort({ createdAt: -1 });
   
-  // ✅ FIX: Utiliser 'scheduledDate' au lieu de 'date' pour correspondre au dashboard
   const formattedRequests = requests.map(req => ({
     _id: req._id,
     status: req.status,
     serviceType: req.serviceType,
-    date: req.scheduledDate, // ✅ CORRIGÉ: était req.scheduledDate, maintenant c'est cohérent avec le dashboard
-    scheduledDate: req.scheduledDate, // ✅ AJOUTÉ: garder aussi le champ original
+    date: req.scheduledDate,
+    scheduledDate: req.scheduledDate,
     address: req.address,
     price: req.price,
     client: req.client ? {
@@ -125,7 +139,6 @@ exports.updateProviderProfile = asyncHandler(async (req, res, next) => {
     }
   });
   
-  // ✅ Calculer automatiquement hourlyRate si serviceDetails est fourni
   if (filteredData.serviceDetails && Array.isArray(filteredData.serviceDetails) && filteredData.serviceDetails.length > 0) {
     console.log('📊 Calcul automatique du hourlyRate moyen...');
     
@@ -286,19 +299,14 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
     console.log('✅ Mission acceptée et paiement capturé');
     
     if (job.client.pushToken) {
-      console.log('📤 Envoi notification au client...');
-      
       const providerName = `${job.provider.firstName} ${job.provider.lastName}`;
-      
       await notificationService.notifyClientBookingAccepted(job.client.pushToken, {
         bookingId: job._id.toString(),
         providerId: job.provider._id.toString(),
-        providerName: providerName,
+        providerName,
         providerPhone: job.provider.phone,
         scheduledDate: job.scheduledDate
       });
-    } else {
-      console.log('⚠️ Client sans push token');
     }
     
     res.status(200).json({
@@ -322,7 +330,6 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
   const { reason } = req.body;
   
   console.log('❌ Refus de la mission:', jobId);
-  console.log('   Raison:', reason);
   
   const job = await Request.findOne({ 
     _id: jobId, 
@@ -360,17 +367,12 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
     console.log('✅ Mission refusée et paiement remboursé');
     
     if (job.client.pushToken) {
-      console.log('📤 Envoi notification au client...');
-      
       const providerName = `${job.provider.firstName} ${job.provider.lastName}`;
-      
       await notificationService.notifyClientBookingDeclined(job.client.pushToken, {
         bookingId: job._id.toString(),
         providerId: job.provider._id.toString(),
-        providerName: providerName
+        providerName
       });
-    } else {
-      console.log('⚠️ Client sans push token');
     }
     
     res.status(200).json({
@@ -422,8 +424,6 @@ exports.addService = asyncHandler(async (req, res, next) => {
   const { type, hourlyRate, description } = req.body;
   
   console.log('➕ Ajout d\'un service pour provider:', providerId);
-  console.log('   Type:', type);
-  console.log('   Tarif:', hourlyRate);
   
   if (!type || !hourlyRate) {
     return next(new ErrorResponse('Type et tarif horaire requis', 400));
@@ -435,19 +435,12 @@ exports.addService = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Prestataire non trouvé', 404));
   }
   
-  provider.serviceDetails.push({
-    type,
-    hourlyRate,
-    description: description || ''
-  });
+  provider.serviceDetails.push({ type, hourlyRate, description: description || '' });
   
   const totalRate = provider.serviceDetails.reduce((sum, s) => sum + s.hourlyRate, 0);
   provider.hourlyRate = totalRate / provider.serviceDetails.length;
   
   await provider.save();
-  
-  console.log('✅ Service ajouté avec succès');
-  console.log('   hourlyRate moyen recalculé:', provider.hourlyRate);
   
   res.status(201).json({
     success: true,
@@ -463,10 +456,6 @@ exports.updateService = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
   const serviceId = req.params.id;
   const { type, hourlyRate, description } = req.body;
-  
-  console.log('✏️  Mise à jour du service:', serviceId);
-  console.log('   Provider:', providerId);
-  console.log('   Nouveau tarif:', hourlyRate);
   
   const provider = await Provider.findById(providerId);
   
@@ -489,9 +478,6 @@ exports.updateService = asyncHandler(async (req, res, next) => {
   
   await provider.save();
   
-  console.log('✅ Service mis à jour avec succès');
-  console.log('   hourlyRate moyen recalculé:', provider.hourlyRate);
-  
   res.status(200).json({
     success: true,
     message: 'Service mis à jour avec succès',
@@ -505,9 +491,6 @@ exports.updateService = asyncHandler(async (req, res, next) => {
 exports.deleteService = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
   const serviceId = req.params.id;
-  
-  console.log('🗑️  Suppression du service:', serviceId);
-  console.log('   Provider:', providerId);
   
   const provider = await Provider.findById(providerId);
   
@@ -532,9 +515,6 @@ exports.deleteService = asyncHandler(async (req, res, next) => {
   
   await provider.save();
   
-  console.log('✅ Service supprimé avec succès');
-  console.log('   hourlyRate moyen recalculé:', provider.hourlyRate);
-  
   res.status(200).json({
     success: true,
     message: 'Service supprimé avec succès',
@@ -542,13 +522,11 @@ exports.deleteService = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Obtenir les statistiques du dashboard (compteurs uniquement)
+// @desc    Obtenir les statistiques du dashboard
 // @route   GET /api/providers/dashboard/stats
 // @access  Private (Prestataire uniquement)
 exports.getDashboardStats = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
-  
-  console.log('📊 Récupération stats dashboard pour provider:', providerId);
   
   const [pendingCount, completedCount, totalBookings] = await Promise.all([
     Request.countDocuments({ provider: providerId, status: 'pending' }),
@@ -556,19 +534,13 @@ exports.getDashboardStats = asyncHandler(async (req, res, next) => {
     Request.countDocuments({ provider: providerId })
   ]);
   
-  console.log(`✅ Stats: ${pendingCount} pending, ${completedCount} completed, ${totalBookings} total`);
-  
   res.status(200).json({
     success: true,
-    data: {
-      pendingCount,
-      completedCount,
-      totalBookings
-    }
+    data: { pendingCount, completedCount, totalBookings }
   });
 });
 
-// @desc    Obtenir les missions du jour uniquement
+// @desc    Obtenir les missions du jour
 // @route   GET /api/providers/dashboard/today
 // @access  Private (Prestataire uniquement)
 exports.getTodayJobs = asyncHandler(async (req, res, next) => {
@@ -579,20 +551,13 @@ exports.getTodayJobs = asyncHandler(async (req, res, next) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   
-  console.log(`📅 Recherche missions du ${today.toISOString()} au ${tomorrow.toISOString()}`);
-  
   const todayBookings = await Request.find({
     provider: providerId,
-    scheduledDate: { 
-      $gte: today, 
-      $lt: tomorrow 
-    }
+    scheduledDate: { $gte: today, $lt: tomorrow }
   })
   .populate('client', 'firstName lastName email phone')
   .sort({ scheduledDate: 1 })
   .limit(10);
-  
-  console.log(`✅ ${todayBookings.length} missions trouvées pour aujourd'hui`);
   
   res.status(200).json({
     success: true,
