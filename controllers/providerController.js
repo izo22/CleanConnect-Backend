@@ -1,5 +1,5 @@
 // controllers/providerController.js
-// ✅ VERSION CORRIGÉE: Fix incohérence nom de champ date + serviceDetails + filtre ville backend
+// ✅ VERSION CORRIGÉE: Fix serviceTypeMap anglais → hébreu
 
 const Provider = require('../models/Provider');
 const Request = require('../models/Request');
@@ -20,6 +20,14 @@ exports.getAllProviders = asyncHandler(async (req, res, next) => {
   console.log('   Ville:', city || 'toutes');
   console.log('   Service:', serviceType || 'tous');
 
+  // ✅ Table de correspondance anglais → hébreu
+  const serviceTypeMap = {
+    'home':     'בית',
+    'office':   'משרד',
+    'building': 'בניין',
+    'airbnb':   'אירבנב',
+  };
+
   const query = { role: 'provider' };
 
   // ✅ Filtre par ville (matching partiel pour gérer "תל אביב" vs "תל אביב-יפו")
@@ -32,11 +40,13 @@ exports.getAllProviders = asyncHandler(async (req, res, next) => {
     };
   }
 
-  // ✅ Filtre par type de service
+  // ✅ Filtre par type de service — traduit en hébreu si nécessaire
   if (serviceType) {
+    const hebrewType = serviceTypeMap[serviceType.toLowerCase()] || serviceType;
+    console.log(`   ServiceType reçu: "${serviceType}" → recherche: "${hebrewType}"`);
     query.serviceTypes = {
       $elemMatch: {
-        $regex: serviceType.trim(),
+        $regex: hebrewType.trim(),
         $options: 'i'
       }
     };
