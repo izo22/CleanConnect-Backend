@@ -54,7 +54,7 @@ class PaymentService {
 
       const payload = {
         terminal_name:  TERMINAL_NAME,
-        txn_type:       'auth',
+        txn_type:       'debit',
         card_number:    cardDetails.ccno,
         expire_month:   parseInt(cardDetails.expmonth),
         expire_year:    parseInt(cardDetails.expyear) % 100,
