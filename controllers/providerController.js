@@ -262,8 +262,10 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
   
   try {
     console.log('💳 Capture du paiement:', job.payment.intentId);
-    const captureResult = await PaymentService.capturePayment(job.payment.intentId, job.payment.tranzilaIndex);
-    
+    const captureResult = await PaymentService.capturePayment(
+      job.payment.intentId,
+      job.payment.tranzilaIndex || job.payment.intentId
+    );    
     if (!captureResult.success) {
       return next(new ErrorResponse('Échec de la capture du paiement', 400));
     }
