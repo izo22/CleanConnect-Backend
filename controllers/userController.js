@@ -2,7 +2,7 @@
 // ✅ Contrôleur pour gérer les profils utilisateurs + vidéos de propriété + NOTIFICATIONS
 
 const User = require('../models/User');
-const Provider = require('../models/Provider'); // ✅ NOUVEAU
+const Provider = require('../models/Provider');
 const Request = require('../models/Request');
 const PaymentService = require('../src/services/paymentService');
 const cloudinary = require('../config/cloudinary');
@@ -390,7 +390,9 @@ exports.createBooking = async (req, res, next) => {
       description,
       price,
       duration,
-      paymentIntentId
+      paymentIntentId,
+      tranzilaIndex,   // ✅ FIX — index numérique Tranzila, indispensable pour le remboursement
+      authnumber,      // ✅ FIX — numéro d'autorisation Tranzila
     } = req.body;
     
     // Validation
@@ -401,7 +403,7 @@ exports.createBooking = async (req, res, next) => {
       });
     }
     
-    // ✅ Récupérer la vidéo du client ET le prestataire
+    // Récupérer la vidéo du client ET le prestataire
     const client = await User.findById(req.user.id);
     const provider = await Provider.findById(providerId);
     
@@ -417,6 +419,8 @@ exports.createBooking = async (req, res, next) => {
     
     // Créer le payment intent si pas déjà fourni
     let finalPaymentIntentId = paymentIntentId;
+    let finalTranzilaIndex   = tranzilaIndex || null;
+    let finalAuthnumber      = authnumber    || null;
     
     if (!finalPaymentIntentId) {
       console.log('💳 Création du payment intent...');
@@ -439,7 +443,11 @@ exports.createBooking = async (req, res, next) => {
       }
       
       finalPaymentIntentId = paymentResult.paymentIntent.id;
+      finalTranzilaIndex   = paymentResult.paymentIntent.tranzilaIndex || null;
+      finalAuthnumber      = paymentResult.paymentIntent.authnumber    || null;
     }
+
+    console.log('💾 tranzilaIndex sauvegardé en DB:', finalTranzilaIndex);
     
     // Créer la demande/réservation
     const request = await Request.create({
@@ -454,10 +462,13 @@ exports.createBooking = async (req, res, next) => {
       price: price,
       propertyVideoUrl: client.propertyVideo?.url || null,
       payment: {
-        intentId: finalPaymentIntentId,
-        status: 'held',
-        amount: fees.totalFee,
-        paidAt: new Date()
+        intentId:      finalPaymentIntentId,
+        tranzilaIndex: finalTranzilaIndex,   // ✅ FIX — sauvegardé en DB (était toujours null avant)
+        authnumber:    finalAuthnumber,      // ✅ FIX — sauvegardé en DB
+        status:        'held',
+        amount:        fees.totalFee,
+        method:        'card',
+        paidAt:        new Date()
       },
       providerPhoneVisible: false
     });
@@ -466,11 +477,12 @@ exports.createBooking = async (req, res, next) => {
     await request.populate('provider', 'firstName lastName phone email');
     
     console.log('✅ Réservation créée:', request._id);
+    console.log('   tranzilaIndex en DB:', request.payment.tranzilaIndex);
     if (client.propertyVideo?.url) {
       console.log('📹 Vidéo attachée:', client.propertyVideo.url);
     }
     
-    // ✅ NOUVEAU : Envoyer la notification au prestataire
+    // Envoyer la notification au prestataire
     if (provider.pushToken) {
       console.log('📤 Envoi notification au prestataire...');
       

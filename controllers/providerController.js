@@ -1,5 +1,5 @@
 // controllers/providerController.js
-// ✅ VERSION CORRIGÉE: Fix serviceTypeMap anglais → hébreu
+// ✅ VERSION CORRIGÉE: Fix serviceTypeMap anglais → hébreu + Fix declineJob tranzilaIndex
 
 const Provider = require('../models/Provider');
 const Request = require('../models/Request');
@@ -30,7 +30,6 @@ exports.getAllProviders = asyncHandler(async (req, res, next) => {
 
   const query = { role: 'provider' };
 
-  // ✅ Filtre par ville (matching partiel pour gérer "תל אביב" vs "תל אביב-יפו")
   if (city) {
     query.serviceAreas = {
       $elemMatch: {
@@ -40,7 +39,6 @@ exports.getAllProviders = asyncHandler(async (req, res, next) => {
     };
   }
 
-  // ✅ Filtre par type de service — traduit en hébreu si nécessaire
   if (serviceType) {
     const hebrewType = serviceTypeMap[serviceType.toLowerCase()] || serviceType;
     console.log(`   ServiceType reçu: "${serviceType}" → recherche: "${hebrewType}"`);
@@ -80,8 +78,6 @@ exports.getProviderProfile = asyncHandler(async (req, res, next) => {
   }
   
   console.log('✅ Provider trouvé');
-  console.log('   serviceDetails:', JSON.stringify(provider.serviceDetails, null, 2));
-  console.log('   hourlyRate:', provider.hourlyRate);
   
   const requests = await Request.find({ provider: providerId })
     .populate('client', 'firstName lastName')
@@ -134,7 +130,6 @@ exports.updateProviderProfile = asyncHandler(async (req, res, next) => {
   
   console.log('🔄 ===== MISE À JOUR DU PROFIL PROVIDER =====');
   console.log('   Provider ID:', providerId);
-  console.log('   Données reçues:', JSON.stringify(updateData, null, 2));
   
   const allowedFields = [
     'firstName', 'lastName', 'companyName', 'email', 'phone', 'address', 
@@ -150,22 +145,11 @@ exports.updateProviderProfile = asyncHandler(async (req, res, next) => {
   });
   
   if (filteredData.serviceDetails && Array.isArray(filteredData.serviceDetails) && filteredData.serviceDetails.length > 0) {
-    console.log('📊 Calcul automatique du hourlyRate moyen...');
-    
     const totalRate = filteredData.serviceDetails.reduce((sum, service) => {
       return sum + (parseFloat(service.hourlyRate) || 0);
     }, 0);
-    
     filteredData.hourlyRate = totalRate / filteredData.serviceDetails.length;
-    
-    console.log('   serviceDetails reçus:', filteredData.serviceDetails.length);
-    filteredData.serviceDetails.forEach((s, i) => {
-      console.log(`   Service ${i + 1}: ${s.type} = ${s.hourlyRate}₪`);
-    });
-    console.log('   ✅ hourlyRate moyen calculé:', filteredData.hourlyRate.toFixed(2), '₪');
   }
-  
-  console.log('💾 Sauvegarde en MongoDB:', JSON.stringify(filteredData, null, 2));
   
   const updatedProvider = await Provider.findByIdAndUpdate(
     providerId,
@@ -176,11 +160,6 @@ exports.updateProviderProfile = asyncHandler(async (req, res, next) => {
   if (!updatedProvider) {
     return next(new ErrorResponse('Prestataire non trouvé', 404));
   }
-  
-  console.log('✅ Profil mis à jour avec succès');
-  console.log('   serviceDetails final:', JSON.stringify(updatedProvider.serviceDetails, null, 2));
-  console.log('   hourlyRate final:', updatedProvider.hourlyRate);
-  console.log('=============================================\n');
   
   res.status(200).json({
     success: true,
@@ -196,10 +175,6 @@ exports.updateAvailability = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
   const { availability } = req.body;
 
-  console.log('📅 ===== MISE À JOUR DISPONIBILITÉS =====');
-  console.log('   Provider ID:', providerId);
-  console.log('   Données reçues:', JSON.stringify(availability, null, 2));
-
   if (!availability) {
     return next(new ErrorResponse('Veuillez fournir des disponibilités valides', 400));
   }
@@ -207,17 +182,11 @@ exports.updateAvailability = asyncHandler(async (req, res, next) => {
   const provider = await Provider.findById(providerId);
   
   if (!provider) {
-    console.log('❌ Provider non trouvé avec ID:', providerId);
     return next(new ErrorResponse('Prestataire non trouvé', 404));
   }
 
-  console.log('   Anciennes disponibilités:', JSON.stringify(provider.availability, null, 2));
-
   provider.availability = availability;
   await provider.save();
-
-  console.log('✅ Disponibilités sauvegardées en base:', JSON.stringify(provider.availability, null, 2));
-  console.log('=========================================\n');
 
   res.status(200).json({
     success: true,
@@ -254,7 +223,6 @@ exports.getJob = asyncHandler(async (req, res, next) => {
   const job = await Request.findOne({ 
     _id: jobId,
     provider: providerId
-  // ✅ FIX — phone retiré du populate : le numéro du client ne doit pas être transmis au prestataire
   }).populate('client', 'firstName lastName email address');
   
   if (!job) {
@@ -294,7 +262,7 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
   
   try {
     console.log('💳 Capture du paiement:', job.payment.intentId);
-    const captureResult = await PaymentService.capturePayment(job.payment.intentId);
+    const captureResult = await PaymentService.capturePayment(job.payment.intentId, job.payment.tranzilaIndex);
     
     if (!captureResult.success) {
       return next(new ErrorResponse('Échec de la capture du paiement', 400));
@@ -353,28 +321,35 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Mission non trouvée ou non autorisée', 404));
   }
 
-  // ✅ FIX 1 — Statuts remboursables élargis
-  // Avant: uniquement 'held' et 'captured' → rejetait les statuts 'authorized'/'pending' → Bad Request
   const refundableStatuses = ['held', 'captured', 'authorized', 'pending', 'requires_capture'];
-  if (!refundableStatuses.includes(job.payment.status)) {
-    return next(new ErrorResponse(`Le paiement ne peut pas être remboursé (statut: ${job.payment.status})`, 400));
+  if (!refundableStatuses.includes(job.payment?.status)) {
+    return next(new ErrorResponse(`Le paiement ne peut pas être remboursé (statut: ${job.payment?.status})`, 400));
   }
   
   try {
-    console.log('↩️  Remboursement du paiement:', job.payment.intentId, '| tranzilaIndex:', job.payment.tranzilaIndex);
+    // ✅ FIX — utilise tranzilaIndex tel quel, SANS fallback sur intentId
+    // Avant : const tranzilaIndex = job.payment.tranzilaIndex || job.payment.intentId
+    //         → passait "trz_XXXXX_YYYYY" comme index → Tranzila CGI répondait HTML "Bad Request"
+    // Après : si tranzilaIndex est absent, on decline sans appeler Tranzila (et on log)
+    const tranzilaIndex = job.payment.tranzilaIndex;
 
-    // ✅ FIX 2 — 3 arguments requis par PaymentService.refundPayment : (intentId, tranzilaIndex, reason)
-    // Avant: seulement 2 args (intentId, reason) → tranzilaIndex manquant → Tranzila rejetait → Bad Request
-    const tranzilaIndex = job.payment.tranzilaIndex || job.payment.intentId;
-    const refundResult = await PaymentService.refundPayment(
-      job.payment.intentId,
-      tranzilaIndex,
-      reason || 'Provider declined request'
-    );
-    
-    if (!refundResult.success) {
-      console.error('❌ Remboursement échoué:', refundResult);
-      return next(new ErrorResponse('Échec du remboursement', 400));
+    if (tranzilaIndex) {
+      console.log('↩️  Remboursement Tranzila — index:', tranzilaIndex);
+      const refundResult = await PaymentService.refundPayment(
+        job.payment.intentId,
+        tranzilaIndex,
+        reason || 'Provider declined request'
+      );
+      
+      if (!refundResult.success) {
+        // On log l'échec mais on ne bloque pas le prestataire
+        console.error('⚠️ Remboursement Tranzila échoué (mission déclinée quand même):', refundResult);
+      } else {
+        console.log('✅ Remboursement Tranzila effectué');
+      }
+    } else {
+      // tranzilaIndex absent en DB = booking créée avant le fix ou paiement Bit
+      console.warn('⚠️ tranzilaIndex absent en DB — mission déclinée sans remboursement Tranzila');
     }
     
     job.status = 'declined';
@@ -384,9 +359,9 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
     
     await job.save();
     
-    console.log('✅ Mission refusée et paiement remboursé');
+    console.log('✅ Mission refusée');
     
-    if (job.client.pushToken) {
+    if (job.client?.pushToken) {
       const providerName = `${job.provider.firstName} ${job.provider.lastName}`;
       await notificationService.notifyClientBookingDeclined(job.client.pushToken, {
         bookingId: job._id.toString(),
@@ -442,8 +417,6 @@ exports.completeJob = asyncHandler(async (req, res, next) => {
 exports.addService = asyncHandler(async (req, res, next) => {
   const providerId = req.user.id;
   const { type, hourlyRate, description } = req.body;
-  
-  console.log('➕ Ajout d\'un service pour provider:', providerId);
   
   if (!type || !hourlyRate) {
     return next(new ErrorResponse('Type et tarif horaire requis', 400));
