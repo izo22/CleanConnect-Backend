@@ -254,7 +254,8 @@ exports.getJob = asyncHandler(async (req, res, next) => {
   const job = await Request.findOne({ 
     _id: jobId,
     provider: providerId
-  }).populate('client', 'firstName lastName email phone address');
+  // ✅ FIX — phone retiré du populate : le numéro du client ne doit pas être transmis au prestataire
+  }).populate('client', 'firstName lastName email address');
   
   if (!job) {
     return next(new ErrorResponse('Mission non trouvée ou non autorisée', 404));
@@ -337,7 +338,7 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
 exports.declineJob = asyncHandler(async (req, res, next) => {
   const jobId = req.params.id;
   const providerId = req.user.id;
-  const { reason } = req.body;
+  const { reason } = req.body || {};
   
   console.log('❌ Refus de la mission:', jobId);
   
@@ -351,19 +352,27 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
   if (!job) {
     return next(new ErrorResponse('Mission non trouvée ou non autorisée', 404));
   }
-  
-  if (job.payment.status !== 'held' && job.payment.status !== 'captured') {
-    return next(new ErrorResponse('Le paiement ne peut pas être remboursé', 400));
+
+  // ✅ FIX 1 — Statuts remboursables élargis
+  // Avant: uniquement 'held' et 'captured' → rejetait les statuts 'authorized'/'pending' → Bad Request
+  const refundableStatuses = ['held', 'captured', 'authorized', 'pending', 'requires_capture'];
+  if (!refundableStatuses.includes(job.payment.status)) {
+    return next(new ErrorResponse(`Le paiement ne peut pas être remboursé (statut: ${job.payment.status})`, 400));
   }
   
   try {
-    console.log('↩️  Remboursement du paiement:', job.payment.intentId);
+    console.log('↩️  Remboursement du paiement:', job.payment.intentId, '| tranzilaIndex:', job.payment.tranzilaIndex);
+
+    // ✅ FIX 2 — 3 arguments requis par PaymentService.refundPayment : (intentId, tranzilaIndex, reason)
+    // Avant: seulement 2 args (intentId, reason) → tranzilaIndex manquant → Tranzila rejetait → Bad Request
     const refundResult = await PaymentService.refundPayment(
       job.payment.intentId,
+      job.payment.tranzilaIndex,
       reason || 'Provider declined request'
     );
     
     if (!refundResult.success) {
+      console.error('❌ Remboursement échoué:', refundResult);
       return next(new ErrorResponse('Échec du remboursement', 400));
     }
     
