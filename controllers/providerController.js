@@ -365,9 +365,10 @@ exports.declineJob = asyncHandler(async (req, res, next) => {
 
     // ✅ FIX 2 — 3 arguments requis par PaymentService.refundPayment : (intentId, tranzilaIndex, reason)
     // Avant: seulement 2 args (intentId, reason) → tranzilaIndex manquant → Tranzila rejetait → Bad Request
+    const tranzilaIndex = job.payment.tranzilaIndex || job.payment.intentId;
     const refundResult = await PaymentService.refundPayment(
       job.payment.intentId,
-      job.payment.tranzilaIndex,
+      tranzilaIndex,
       reason || 'Provider declined request'
     );
     
