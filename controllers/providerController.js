@@ -261,12 +261,21 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
   }
   
   try {
+    // ✅ Fallback: si tranzilaIndex absent, l'extraire depuis intentId
+    const tranzilaIndex = job.payment.tranzilaIndex || 
+      (job.payment.intentId?.startsWith('trz_') 
+        ? job.payment.intentId.split('_')[1]
+        : job.payment.intentId);
+
     console.log('💳 Capture du paiement:', job.payment.intentId);
+    console.log('🔑 tranzilaIndex résolu:', tranzilaIndex);
+
     const captureResult = await PaymentService.capturePayment(
       job.payment.intentId,
-      job.payment.tranzilaIndex,
+      tranzilaIndex,
       job.payment.amount
     );
+
     if (!captureResult.success) {
       return next(new ErrorResponse('Échec de la capture du paiement', 400));
     }
