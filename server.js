@@ -1,19 +1,15 @@
-// server.js - Version avec nettoyage automatique et logs
+// server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 
-// Charger les variables d'environnement
 dotenv.config();
 
-// ✅ NOUVEAU: Importer le service de nettoyage
 const { startCleanupScheduler } = require('./src/services/cleanupService');
 
-// Initialiser l'application Express
 const app = express();
 
-// Middleware
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -22,54 +18,58 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ✅ LOGS pour débugger les requêtes
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.url}`);
   next();
 });
 
-// Connexion à la base de données
 const connectDB = require('./config/db');
 connectDB();
 
-// ✅ Démarrer le scheduler après connexion DB
 mongoose.connection.once('open', () => {
   console.log('✅ MongoDB connecté');
   startCleanupScheduler();
 });
 
-// Importer les routes
-const authRoutes          = require('./routes/authRoutes');
-const userRoutes          = require('./routes/userRoutes');
-const providerRoutes      = require('./routes/providerRoutes');
+const authRoutes           = require('./routes/authRoutes');
+const userRoutes           = require('./routes/userRoutes');
+const providerRoutes       = require('./routes/providerRoutes');
 const publicProviderRoutes = require('./routes/publicProviderRoutes');
-const bookingRoutes       = require('./routes/bookingRoutes');
+const bookingRoutes        = require('./routes/bookingRoutes');
 
-// Utiliser les routes
 app.use('/api/public/providers', publicProviderRoutes);
 app.use('/api/auth',      authRoutes);
 app.use('/api/users',     userRoutes);
 app.use('/api/providers', providerRoutes);
 app.use('/api/bookings',  bookingRoutes);
 
-// Route de base
 app.get('/', (req, res) => {
   res.send('API CleanConnect est en ligne');
 });
 
-// Gestion des erreurs 404
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route non trouvée' });
+// ✅ TEMPORAIRE — Récupérer l'IP publique de Render pour whitelist Tranzila
+app.get('/my-ip', async (req, res) => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    console.log('🌐 IP publique Render:', data.ip);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Impossible de récupérer l\'IP' });
+  }
 });
 
-// ✅ FIX — Error handler global (doit être en dernier)
-// Remplace les réponses HTML d'Express par du JSON systématique
+// ✅ FIX — 404 doit appeler next() pour que l'error handler global le reçoive
+const ErrorResponse = require('./utils/errorResponse');
+app.use((req, res, next) => {
+  next(new ErrorResponse(`Route non trouvée : ${req.originalUrl}`, 404));
+});
+
+// ✅ Error handler global (toujours en dernier)
 const errorHandler = require('./middleware/error');
 app.use(errorHandler);
 
-// Port du serveur
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () => {
   console.log(`🚀 Serveur démarré sur le port ${PORT}`);
 });
