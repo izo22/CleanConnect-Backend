@@ -125,26 +125,27 @@ class PaymentService {
   /**
    * Capture carte (débiter après service rendu)
    */
-  static async capturePayment(intentId, tranzilaIndex) {
+  static async capturePayment(intentId, tranzilaIndex, amount) {
     try {
-      console.log('💰 [TRANZILA] Capture carte:', intentId);
+      console.log('💰 [TRANZILA] Capture carte:', intentId, '| Amount:', amount);
       if (!tranzilaIndex) throw new Error('MISSING_TRANZILA_INDEX');
-
+  
       const payload = qs.stringify({
         supplier:   TERMINAL_NAME,
         TranzilaPW: TERMINAL_PW,
         tranmode:   'F',
         index:      tranzilaIndex,
+        sum:        amount,
       });
-
+  
       const response = await axios.post(TRANZILA_CGI_API, payload, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 15000
       });
-
+  
       const data = qs.parse(response.data);
       console.log('🔍 [TRANZILA] Réponse capture:', data);
-
+  
       if (data.Response !== '000') {
         return {
           success:   false,
@@ -153,7 +154,7 @@ class PaymentService {
           message:   'לא ניתן לחייב את הכרטיס'
         };
       }
-
+  
       console.log('✅ [TRANZILA] Carte capturée');
       return {
         success: true,
@@ -166,7 +167,7 @@ class PaymentService {
           capturedAt:       new Date().toISOString()
         }
       };
-
+  
     } catch (error) {
       console.error('❌ [TRANZILA] Erreur capture:', error.message);
       return { success: false, error: 'CAPTURE_FAILED', message: 'לא ניתן לחייב את הכרטיס' };
