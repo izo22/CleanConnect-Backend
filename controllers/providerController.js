@@ -260,57 +260,34 @@ exports.acceptJob = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Cette mission ne peut pas être acceptée', 400));
   }
   
-  try {
-    // ✅ Fallback: si tranzilaIndex absent, l'extraire depuis intentId
-    const tranzilaIndex = job.payment.tranzilaIndex || 
-      (job.payment.intentId?.startsWith('trz_') 
-        ? job.payment.intentId.split('_')[1]
-        : job.payment.intentId);
-
-    console.log('💳 Capture du paiement:', job.payment.intentId);
-    console.log('🔑 tranzilaIndex résolu:', tranzilaIndex);
-
-    const captureResult = await PaymentService.capturePayment(
-      job.payment.intentId,
-      tranzilaIndex,
-      job.payment.amount
-    );
-
-    if (!captureResult.success) {
-      return next(new ErrorResponse('Échec de la capture du paiement', 400));
-    }
-    
-    job.status = 'accepted';
-    job.payment.status = 'captured';
-    job.payment.capturedAt = new Date();
-    job.providerPhoneVisible = true;
-    
-    await job.save();
-    
-    console.log('✅ Mission acceptée et paiement capturé');
-    
-    if (job.client.pushToken) {
-      const providerName = `${job.provider.firstName} ${job.provider.lastName}`;
-      await notificationService.notifyClientBookingAccepted(job.client.pushToken, {
-        bookingId: job._id.toString(),
-        providerId: job.provider._id.toString(),
-        providerName,
-        providerPhone: job.provider.phone,
-        scheduledDate: job.scheduledDate
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      message: 'Mission acceptée et paiement confirmé',
-      data: job
+  // ✅ Rien à faire chez Tranzila — client déjà débité à la réservation
+  job.status = 'accepted';
+  job.payment.status = 'captured';
+  job.payment.capturedAt = new Date();
+  job.providerPhoneVisible = true;
+  
+  await job.save();
+  
+  console.log('✅ Mission acceptée');
+  
+  if (job.client?.pushToken) {
+    const providerName = `${job.provider.firstName} ${job.provider.lastName}`;
+    await notificationService.notifyClientBookingAccepted(job.client.pushToken, {
+      bookingId: job._id.toString(),
+      providerId: job.provider._id.toString(),
+      providerName,
+      providerPhone: job.provider.phone,
+      scheduledDate: job.scheduledDate
     });
-    
-  } catch (error) {
-    console.error('❌ Erreur lors de l\'acceptation:', error);
-    return next(new ErrorResponse('Erreur lors de l\'acceptation de la mission', 500));
   }
+  
+  res.status(200).json({
+    success: true,
+    message: 'Mission acceptée',
+    data: job
+  });
 });
+
 
 // @desc    Refuser une mission
 // @route   PUT /api/providers/jobs/:id/decline
