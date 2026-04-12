@@ -218,3 +218,26 @@ exports.submitReview = asyncHandler(async (req, res, next) => {
     });
   }
 });
+// @desc    Récupérer les réservations actives d'un prestataire (pour bloquer les créneaux)
+// @route   GET /api/public/providers/:id/bookings
+// @access  Public
+exports.getProviderBookings = asyncHandler(async (req, res, next) => {
+  const Request = require('../models/Request');
+  const { from, to } = req.query;
+
+  const filter = {
+    provider: req.params.id,
+    status: { $in: ['pending', 'accepted', 'confirmed'] },
+  };
+
+  if (from && to) {
+    filter.dateTime = { $gte: new Date(from), $lte: new Date(to) };
+  }
+
+  const bookings = await Request.find(filter).select('dateTime duration status');
+
+  res.status(200).json({
+    success: true,
+    data: bookings,
+  });
+});
