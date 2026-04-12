@@ -231,9 +231,8 @@ exports.getProviderBookings = asyncHandler(async (req, res, next) => {
   };
 
   if (from && to) {
-    filter.dateTime = { $gte: new Date(from), $lte: new Date(to) };
+    filter.scheduledDate = { $gte: new Date(from), $lte: new Date(to) };
   }
-
   const bookings = await Request.find(filter).select('scheduledDate duration status');
 
   res.status(200).json({
