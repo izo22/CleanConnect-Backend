@@ -227,7 +227,7 @@ exports.getProviderBookings = asyncHandler(async (req, res, next) => {
 
   const filter = {
     provider: req.params.id,
-    status: { $in: ['pending', 'accepted', 'confirmed'] },
+    status: { $in: ['pending', 'pending_payment', 'accepted', 'confirmed'] },
   };
 
   if (from && to) {
