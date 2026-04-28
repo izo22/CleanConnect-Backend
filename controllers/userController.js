@@ -52,6 +52,11 @@ exports.updateUserProfile = async (req, res, next) => {
       }
     });
 
+    // ✅ FIX — Normalisation Tel Aviv : "תל אביב-יפו" → "תל אביב"
+    if (updateData.city) {
+      updateData.city = updateData.city.replace('תל אביב-יפו', 'תל אביב').trim();
+    }
+
     console.log('✅ Champs à mettre à jour:', updateData);
 
     const user = await User.findByIdAndUpdate(
