@@ -22,6 +22,7 @@ app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.url}`);
   next();
 });
+app.use('/payment-test', require('./routes/paymentTest'));
 
 const connectDB = require('./config/db');
 connectDB();
