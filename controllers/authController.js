@@ -1,5 +1,6 @@
 // controllers/authController.js
 // ✅ CORRIGÉ : Validation stricte de serviceAreas + logs détaillés
+// ✅ MODIFIÉ: Ajout du champ bio dans registerProvider
 
 const User = require('../models/User');
 const Provider = require('../models/Provider');
@@ -119,7 +120,8 @@ exports.registerProvider = async (req, res) => {
       serviceTypes,
       serviceAreas,
       services, // ✅ Recevoir les détails des services
-      language
+      language,
+      bio,      // ✅ AJOUT
     } = req.body;
 
     console.log('📝 ===== INSCRIPTION PRESTATAIRE =====');
@@ -195,7 +197,8 @@ exports.registerProvider = async (req, res) => {
       serviceAreas,
       serviceDetails, // ✅ SOURCE DE VÉRITÉ UNIQUE
       role: 'provider',
-      language: language || 'he'
+      language: language || 'he',
+      bio: bio || '',  // ✅ AJOUT
     });
 
     console.log('✅ ===== PRESTATAIRE CRÉÉ AVEC SUCCÈS =====');
