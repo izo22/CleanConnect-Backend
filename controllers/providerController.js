@@ -3,6 +3,7 @@
 // ✅ Fix declineJob tranzilaIndex
 // ✅ Fix updateService sync serviceTypes
 // ✅ Ajout updateServiceAreas
+// ✅ Fix city normalization "תל אביב-יפו" → "תל אביב"
 
 const Provider = require('../models/Provider');
 const Request = require('../models/Request');
@@ -33,9 +34,11 @@ exports.getAllProviders = asyncHandler(async (req, res, next) => {
   const query = { role: 'provider' };
 
   if (city) {
+    const cityBase = city.trim().split('-')[0].trim(); // "תל אביב-יפו" → "תל אביב"
+    console.log(`   Ville normalisée: "${city}" → "${cityBase}"`);
     query.serviceAreas = {
       $elemMatch: {
-        $regex: city.trim(),
+        $regex: cityBase,
         $options: 'i'
       }
     };
@@ -455,7 +458,6 @@ exports.updateService = asyncHandler(async (req, res, next) => {
   if (description !== undefined) service.description = description;
 
   // ✅ FIX — sync serviceTypes depuis serviceDetails
-  // Sans ça, modifier le type d'un service ne met pas à jour la recherche client
   provider.serviceTypes = [...new Set(provider.serviceDetails.map(s => s.type))];
 
   const totalRate = provider.serviceDetails.reduce((sum, s) => sum + s.hourlyRate, 0);
