@@ -42,51 +42,104 @@ router.get('/:id', protect, async (req, res) => {
   }
 });
 
-// ✅ Annuler une réservation (avec remboursement automatique carte ou Bit)
+// ══════════════════════════════════════════════════════
+// ANNULATION CLIENT — Option A
+// ✅ Uniquement si status === 'pending' (prestataire pas encore répondu)
+// ✅ Remboursement 100% systématique (carte ou Bit)
+// ✅ Une fois accepté, le numéro du prestataire est débloqué
+//    → l'annulation se gère directement entre client et prestataire (CGU)
+// ══════════════════════════════════════════════════════
+
 router.put('/:id/cancel', protect, async (req, res) => {
   try {
     const booking = await Request.findById(req.params.id);
 
+    // Réservation introuvable
     if (!booking) {
-      return res.status(404).json({ success: false, message: 'Réservation non trouvée' });
+      return res.status(404).json({ success: false, message: 'הזמנה לא נמצאה' });
     }
 
+    // Seul le client propriétaire peut annuler
     if (booking.client.toString() !== req.user.id) {
-      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+      return res.status(403).json({ success: false, message: 'אין הרשאה לביטול הזמנה זו' });
     }
 
-    if (booking.status === 'completed' || booking.status === 'cancelled') {
-      return res.status(400).json({ success: false, message: 'Cette réservation ne peut pas être annulée' });
+    // ✅ Annulation autorisée uniquement en statut 'pending'
+    // En 'accepted' → le prestataire a confirmé et son numéro est débloqué
+    //                 → le client s'arrange directement avec lui (CGU)
+    if (booking.status !== 'pending') {
+      const messages = {
+        accepted:  'לאחר אישור הספק, יש לפנות אליו ישירות לביטול',
+        completed: 'לא ניתן לבטל הזמנה שהושלמה',
+        cancelled: 'ההזמנה כבר בוטלה',
+        declined:  'ההזמנה כבר נדחתה',
+        expired:   'ההזמנה פגה',
+      };
+      return res.status(400).json({
+        success: false,
+        message: messages[booking.status] || 'לא ניתן לבטל הזמנה זו'
+      });
     }
 
-    // ✅ Rembourser via Tranzila si paiement en attente
-    if (booking.payment.status === 'held') {
+    // ✅ Remboursement 100% — carte ou Bit
+    if (booking.payment?.status === 'held') {
       const PaymentService = require('../src/services/paymentService');
 
       if (booking.payment.method === 'card' && booking.payment.tranzilaIndex) {
-        await PaymentService.refundPayment(
+        console.log('↩️  Remboursement carte pour annulation client:', booking._id);
+        const refundResult = await PaymentService.refundPayment(
           booking.payment.intentId,
           booking.payment.tranzilaIndex,
-          'Client cancelled'
+          'Client cancelled - pending status'
         );
+
+        if (!refundResult.success) {
+          // ✅ On log l'erreur sans bloquer l'annulation
+          // Le remboursement manuel sera tracé via payment.refundError
+          console.error('⚠️  Remboursement Tranzila échoué:', refundResult);
+          booking.payment.refundError = refundResult.message || 'Remboursement échoué';
+        } else {
+          booking.payment.status     = 'refunded';
+          booking.payment.refundedAt = new Date();
+        }
+
       } else if (booking.payment.method === 'bit' && booking.payment.bitTransactionId) {
-        await PaymentService.refundBitPayment(
+        console.log('↩️  Remboursement Bit pour annulation client:', booking._id);
+        const refundResult = await PaymentService.refundBitPayment(
           booking.payment.bitTransactionId,
           booking.payment.amount
         );
-      }
 
-      booking.payment.status     = 'refunded';
-      booking.payment.refundedAt = new Date();
+        if (!refundResult.success) {
+          console.error('⚠️  Remboursement Bit échoué:', refundResult);
+          booking.payment.refundError = refundResult.message || 'Remboursement Bit échoué';
+        } else {
+          booking.payment.status     = 'refunded';
+          booking.payment.refundedAt = new Date();
+        }
+      }
     }
 
     booking.status = 'cancelled';
     await booking.save();
 
-    res.status(200).json({ success: true, message: 'Réservation annulée', data: booking });
+    console.log('✅ Réservation annulée par le client:', booking._id);
+
+    res.status(200).json({
+      success: true,
+      message: 'ההזמנה בוטלה והכסף יוחזר תוך 3-5 ימי עסקים',
+      data: {
+        bookingId:     booking._id,
+        status:        booking.status,
+        paymentStatus: booking.payment.status,
+        refundedAt:    booking.payment.refundedAt,
+        refundError:   booking.payment.refundError || null,
+      }
+    });
+
   } catch (error) {
-    console.error('Erreur cancelBooking:', error);
-    res.status(500).json({ success: false, message: "Erreur lors de l'annulation" });
+    console.error('❌ Erreur cancelBooking:', error);
+    res.status(500).json({ success: false, message: 'שגיאה בביטול ההזמנה' });
   }
 });
 
@@ -127,17 +180,10 @@ router.patch('/:id/complete', protect, authorize('client'), async (req, res) => 
 // PAIEMENTS - CARTE DE CRÉDIT
 // ══════════════════════════════════════════════════════
 
-// ✅ NOUVELLE route principale utilisée par le frontend
-router.post('/payments/card/charge', protect, authorize('client'), paymentController.createPaymentIntent);
-
-// ✅ Rétrocompatibilité (ancien nom)
-router.post('/payments/create-intent', protect, authorize('client'), paymentController.createPaymentIntent);
-
-// Frais & statut
+router.post('/payments/card/charge',    protect, authorize('client'), paymentController.createPaymentIntent);
+router.post('/payments/create-intent',  protect, authorize('client'), paymentController.createPaymentIntent);
 router.post('/payments/calculate-fees', paymentController.calculateFees);
 router.get('/payments/status/:intentId', protect, paymentController.getPaymentStatus);
-
-// Capture et remboursement (provider)
 router.post('/payments/capture/:requestId', protect, authorize('provider'), paymentController.capturePayment);
 router.post('/payments/refund/:requestId',  protect, authorize('provider'), paymentController.refundPayment);
 
@@ -145,9 +191,9 @@ router.post('/payments/refund/:requestId',  protect, authorize('provider'), paym
 // PAIEMENTS - BIT
 // ══════════════════════════════════════════════════════
 
-router.post('/payments/bit/init',    protect, authorize('client'), paymentController.initBitPayment);
-router.get('/payments/bit/success',  paymentController.bitSuccess);
-router.get('/payments/bit/failure',  paymentController.bitFailure);
-router.post('/payments/bit/notify',  paymentController.bitNotify); // webhook Tranzila
+router.post('/payments/bit/init',   protect, authorize('client'), paymentController.initBitPayment);
+router.get('/payments/bit/success', paymentController.bitSuccess);
+router.get('/payments/bit/failure', paymentController.bitFailure);
+router.post('/payments/bit/notify', paymentController.bitNotify);
 
 module.exports = router;
