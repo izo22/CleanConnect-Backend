@@ -37,12 +37,14 @@ const userRoutes           = require('./routes/userRoutes');
 const providerRoutes       = require('./routes/providerRoutes');
 const publicProviderRoutes = require('./routes/publicProviderRoutes');
 const bookingRoutes        = require('./routes/bookingRoutes');
+const notificationRoutes   = require('./routes/notificationRoutes');
 
 app.use('/api/public/providers', publicProviderRoutes);
-app.use('/api/auth',      authRoutes);
-app.use('/api/users',     userRoutes);
-app.use('/api/providers', providerRoutes);
-app.use('/api/bookings',  bookingRoutes);
+app.use('/api/auth',             authRoutes);
+app.use('/api/users',            userRoutes);
+app.use('/api/providers',        providerRoutes);
+app.use('/api/bookings',         bookingRoutes);
+app.use('/api/notifications',    notificationRoutes);
 
 app.get('/', (req, res) => {
   res.send('API CleanConnect est en ligne');
