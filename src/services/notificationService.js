@@ -1,161 +1,168 @@
-// services/notificationService.js
-// ✅ Service de notifications push avec Expo
+// src/services/notificationService.js
+// ✅ VERSION CORRIGÉE : removeNotificationListeners utilise .remove() au lieu de
+//    Notifications.removeNotificationSubscription() qui n'existe plus dans expo-notifications
 
-const { Expo } = require('expo-server-sdk');
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+import { API_URL } from '../config/constants';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 class NotificationService {
   constructor() {
-    this.expo = new Expo();
+    this.notificationListener = null;
+    this.responseListener = null;
   }
 
-  /**
-   * Envoyer une notification à un utilisateur
-   * @param {String} pushToken - Token Expo du destinataire
-   * @param {Object} notification - Contenu de la notification
-   * @returns {Promise}
-   */
-  async sendNotification(pushToken, notification) {
+  async registerForPushNotifications() {
     try {
-      // Vérifier que le token est valide
-      if (!Expo.isExpoPushToken(pushToken)) {
-        console.error('❌ Token push invalide:', pushToken);
-        return { success: false, error: 'Token invalide' };
+      console.log('📱 Demande des permissions de notifications...');
+
+      if (!Device.isDevice) {
+        console.log('⚠️ Notifications push : appareil physique requis');
+        return null;
       }
 
-      const message = {
-        to: pushToken,
-        sound: 'default',
-        title: notification.title,
-        body: notification.body,
-        data: notification.data || {},
-        badge: notification.badge || 1,
-        priority: 'high',
-        channelId: 'default'
-      };
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
 
-      console.log('📤 Envoi notification:', {
-        to: pushToken.substring(0, 20) + '...',
-        title: notification.title
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('❌ Permission notifications refusée');
+        return null;
+      }
+
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      console.log('🔑 Project ID:', projectId);
+
+      const tokenPromise = Notifications.getExpoPushTokenAsync({ projectId });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout push token après 5s')), 5000)
+      );
+
+      const token = (await Promise.race([tokenPromise, timeoutPromise])).data;
+      console.log('✅ Push token obtenu:', token.substring(0, 30) + '...');
+
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF231F7C',
+          sound: 'default',
+        });
+      }
+
+      return token;
+    } catch (error) {
+      console.error('❌ Erreur registerForPushNotifications:', error.message);
+      return null;
+    }
+  }
+
+  async savePushTokenToServer(token) {
+    try {
+      const authToken = await AsyncStorage.getItem('token');
+
+      if (!authToken) {
+        console.warn('⚠️ savePushTokenToServer — token auth introuvable');
+        return false;
+      }
+
+      console.log('💾 Enregistrement du push token sur le serveur...');
+
+      const response = await axios.post(
+        `${API_URL}/notifications/token`,
+        { pushToken: token },
+        {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.data.success) {
+        console.log('✅ Push token enregistré sur le serveur');
+        await AsyncStorage.setItem('pushToken', token);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('❌ Erreur savePushTokenToServer:', error.response?.data || error.message);
+      return false;
+    }
+  }
+
+  async removePushTokenFromServer() {
+    try {
+      const authToken = await AsyncStorage.getItem('token');
+
+      if (!authToken) return;
+
+      console.log('🗑️ Suppression du push token...');
+
+      await axios.delete(`${API_URL}/notifications/token`, {
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      const chunks = this.expo.chunkPushNotifications([message]);
-      const tickets = [];
-
-      for (const chunk of chunks) {
-        try {
-          const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-          tickets.push(...ticketChunk);
-        } catch (error) {
-          console.error('❌ Erreur envoi chunk:', error);
-        }
-      }
-
-      console.log('✅ Notification envoyée:', tickets);
-      return { success: true, tickets };
-
+      await AsyncStorage.removeItem('pushToken');
+      console.log('✅ Push token supprimé');
     } catch (error) {
-      console.error('❌ Erreur sendNotification:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Erreur removePushTokenFromServer:', error.response?.data || error.message);
     }
   }
 
-  /**
-   * Notification : Nouvelle demande de réservation pour le prestataire
-   */
-  async notifyProviderNewBooking(providerToken, bookingData) {
-    const notification = {
-      title: '🔔 בקשת הזמנה חדשה',
-      body: `${bookingData.clientName} שלח/ה בקשה לשירות ${bookingData.serviceType}`,
-      data: {
-        type: 'NEW_BOOKING',
-        bookingId: bookingData.bookingId,
-        clientId: bookingData.clientId,
-        serviceType: bookingData.serviceType,
-        scheduledDate: bookingData.scheduledDate,
-        price: bookingData.price
-      },
-      badge: 1
-    };
+  setupNotificationListeners(onNotificationReceived, onNotificationTapped) {
+    this.notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('🔔 Notification reçue:', notification);
+      onNotificationReceived?.(notification);
+    });
 
-    return this.sendNotification(providerToken, notification);
+    this.responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('👆 Notification tappée:', response);
+      const data = response.notification.request.content.data;
+      onNotificationTapped?.(data);
+    });
   }
 
-  /**
-   * Notification : Le prestataire a accepté la réservation
-   */
-  async notifyClientBookingAccepted(clientToken, bookingData) {
-    const notification = {
-      title: '✅ ההזמנה אושרה!',
-      body: `${bookingData.providerName} אישר/ה את ההזמנה שלך`,
-      data: {
-        type: 'BOOKING_ACCEPTED',
-        bookingId: bookingData.bookingId,
-        providerId: bookingData.providerId,
-        providerName: bookingData.providerName,
-        providerPhone: bookingData.providerPhone,
-        scheduledDate: bookingData.scheduledDate
-      },
-      badge: 1
-    };
-
-    return this.sendNotification(clientToken, notification);
-  }
-
-  /**
-   * Notification : Le prestataire a refusé la réservation
-   */
-  async notifyClientBookingDeclined(clientToken, bookingData) {
-    const notification = {
-      title: '❌ ההזמנה נדחתה',
-      body: `${bookingData.providerName} לא יכול/ה לקבל את ההזמנה שלך`,
-      data: {
-        type: 'BOOKING_DECLINED',
-        bookingId: bookingData.bookingId,
-        providerId: bookingData.providerId,
-        providerName: bookingData.providerName
-      },
-      badge: 1
-    };
-
-    return this.sendNotification(clientToken, notification);
-  }
-
-  /**
-   * Envoyer des notifications en masse
-   * @param {Array} notifications - Array de {pushToken, notification}
-   */
-  async sendBulkNotifications(notifications) {
-    const messages = notifications
-      .filter(({ pushToken }) => Expo.isExpoPushToken(pushToken))
-      .map(({ pushToken, notification }) => ({
-        to: pushToken,
-        sound: 'default',
-        title: notification.title,
-        body: notification.body,
-        data: notification.data || {},
-        badge: notification.badge || 1
-      }));
-
-    if (messages.length === 0) {
-      console.log('⚠️ Aucune notification valide à envoyer');
-      return { success: true, sent: 0 };
+  // ✅ CORRIGÉ : utilise .remove() sur la subscription directement
+  removeNotificationListeners() {
+    if (this.notificationListener) {
+      this.notificationListener.remove();
+      this.notificationListener = null;
     }
-
-    const chunks = this.expo.chunkPushNotifications(messages);
-    const tickets = [];
-
-    for (const chunk of chunks) {
-      try {
-        const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-        tickets.push(...ticketChunk);
-      } catch (error) {
-        console.error('❌ Erreur envoi bulk:', error);
-      }
+    if (this.responseListener) {
+      this.responseListener.remove();
+      this.responseListener = null;
     }
+  }
 
-    console.log(`✅ ${messages.length} notifications envoyées`);
-    return { success: true, sent: messages.length, tickets };
+  async getBadgeCount()       { return await Notifications.getBadgeCountAsync(); }
+  async setBadgeCount(count)  { await Notifications.setBadgeCountAsync(count); }
+  async clearBadge()          { await Notifications.setBadgeCountAsync(0); }
+
+  async scheduleLocalNotification(title, body, data = {}) {
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, data, sound: true, badge: 1 },
+      trigger: null,
+    });
   }
 }
 
-module.exports = new NotificationService();
+export default new NotificationService();
