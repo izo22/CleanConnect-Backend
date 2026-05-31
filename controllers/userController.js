@@ -52,12 +52,9 @@ exports.updateUserProfile = async (req, res, next) => {
       }
     });
 
-    // ✅ FIX — Normalisation Tel Aviv : "תל אביב-יפו" → "תל אביב"
     if (updateData.city) {
       updateData.city = updateData.city.replace('תל אביב-יפו', 'תל אביב').trim();
     }
-
-    console.log('✅ Champs à mettre à jour:', updateData);
 
     const user = await User.findByIdAndUpdate(
       req.user.id,
@@ -75,8 +72,6 @@ exports.updateUserProfile = async (req, res, next) => {
         message: 'Utilisateur non trouvé'
       });
     }
-
-    console.log('✅ Profil mis à jour:', user);
 
     res.status(200).json({
       success: true,
@@ -113,14 +108,7 @@ exports.addAddress = async (req, res, next) => {
       user.addresses = [];
     }
 
-    user.addresses.push({
-      name,
-      street,
-      city,
-      country,
-      additionalInfo
-    });
-
+    user.addresses.push({ name, street, city, country, additionalInfo });
     await user.save();
 
     res.status(201).json({
@@ -199,7 +187,6 @@ exports.deleteAddress = async (req, res, next) => {
     }
 
     user.addresses.pull(req.params.id);
-
     await user.save();
 
     res.status(200).json({
@@ -220,9 +207,6 @@ exports.deleteAddress = async (req, res, next) => {
 // ✅ GESTION VIDÉO DE PROPRIÉTÉ
 // ============================================
 
-// @desc    Upload property video
-// @route   POST /api/users/property-video
-// @access  Private (Client only)
 exports.uploadPropertyVideo = async (req, res) => {
   try {
     if (!req.file) {
@@ -231,9 +215,6 @@ exports.uploadPropertyVideo = async (req, res) => {
         message: 'Aucun fichier vidéo fourni' 
       });
     }
-
-    console.log('📹 Upload vidéo de propriété pour:', req.user.id);
-    console.log('   Taille fichier:', (req.file.size / 1024 / 1024).toFixed(2), 'MB');
 
     const user = await User.findById(req.user.id);
 
@@ -246,24 +227,18 @@ exports.uploadPropertyVideo = async (req, res) => {
 
     if (user.propertyVideo?.publicId) {
       try {
-        console.log('🗑️ Suppression ancienne vidéo:', user.propertyVideo.publicId);
-        await cloudinary.uploader.destroy(user.propertyVideo.publicId, { 
-          resource_type: 'video' 
-        });
+        await cloudinary.uploader.destroy(user.propertyVideo.publicId, { resource_type: 'video' });
       } catch (error) {
         console.error('⚠️ Erreur suppression ancienne vidéo:', error);
       }
     }
 
-    console.log('☁️ Upload vers Cloudinary...');
     const uploadPromise = new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           resource_type: 'video',
           folder: 'cleanconnect/property_videos',
-          transformation: [
-            { quality: 'auto', fetch_format: 'auto' }
-          ]
+          transformation: [{ quality: 'auto', fetch_format: 'auto' }]
         },
         (error, result) => {
           if (error) reject(error);
@@ -282,8 +257,6 @@ exports.uploadPropertyVideo = async (req, res) => {
     };
     await user.save();
 
-    console.log('✅ Vidéo uploadée:', result.secure_url);
-
     res.status(200).json({ 
       success: true,
       message: 'Vidéo uploadée avec succès',
@@ -300,54 +273,33 @@ exports.uploadPropertyVideo = async (req, res) => {
   }
 };
 
-// @desc    Get property video
-// @route   GET /api/users/property-video
-// @access  Private (Client only)
 exports.getPropertyVideo = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Utilisateur non trouvé' 
-      });
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    res.status(200).json({ 
-      success: true,
-      video: user.propertyVideo || null 
-    });
+    res.status(200).json({ success: true, video: user.propertyVideo || null });
 
   } catch (error) {
     console.error('❌ Erreur récupération vidéo:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Erreur lors de la récupération de la vidéo' 
-    });
+    res.status(500).json({ success: false, message: 'Erreur lors de la récupération de la vidéo' });
   }
 };
 
-// @desc    Delete property video
-// @route   DELETE /api/users/property-video
-// @access  Private (Client only)
 exports.deletePropertyVideo = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Utilisateur non trouvé' 
-      });
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
     if (user.propertyVideo?.publicId) {
       try {
-        console.log('🗑️ Suppression vidéo Cloudinary:', user.propertyVideo.publicId);
-        await cloudinary.uploader.destroy(user.propertyVideo.publicId, { 
-          resource_type: 'video' 
-        });
+        await cloudinary.uploader.destroy(user.propertyVideo.publicId, { resource_type: 'video' });
       } catch (error) {
         console.error('⚠️ Erreur suppression Cloudinary:', error);
       }
@@ -356,19 +308,11 @@ exports.deletePropertyVideo = async (req, res) => {
     user.propertyVideo = undefined;
     await user.save();
 
-    console.log('✅ Vidéo supprimée du profil');
-
-    res.status(200).json({ 
-      success: true,
-      message: 'Vidéo supprimée avec succès' 
-    });
+    res.status(200).json({ success: true, message: 'Vidéo supprimée avec succès' });
 
   } catch (error) {
     console.error('❌ Erreur suppression vidéo:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Erreur lors de la suppression de la vidéo' 
-    });
+    res.status(500).json({ success: false, message: 'Erreur lors de la suppression de la vidéo' });
   }
 };
 
@@ -377,6 +321,7 @@ exports.deletePropertyVideo = async (req, res) => {
 // ============================================
 
 // ✅ ESCROW - Créer une réservation avec paiement + NOTIFICATION
+// ✅ NOUVEAU : première commande gratuite (firstOrderUsed = false → bypass Tranzila)
 // @desc    Create booking with payment
 // @route   POST /api/bookings
 // @access  Private (client only)
@@ -396,11 +341,11 @@ exports.createBooking = async (req, res, next) => {
       price,
       duration,
       paymentIntentId,
-      tranzilaIndex,   // ✅ FIX — index numérique Tranzila, indispensable pour le remboursement
-      authnumber,      // ✅ FIX — numéro d'autorisation Tranzila
+      paymentMethod: bodyPaymentMethod,
+      tranzilaIndex,
+      authnumber,
     } = req.body;
     
-    // Validation
     if (!providerId || !serviceType || !scheduledDate || !price) {
       return res.status(400).json({
         success: false,
@@ -408,7 +353,6 @@ exports.createBooking = async (req, res, next) => {
       });
     }
     
-    // Récupérer la vidéo du client ET le prestataire
     const client = await User.findById(req.user.id);
     const provider = await Provider.findById(providerId);
     
@@ -418,88 +362,101 @@ exports.createBooking = async (req, res, next) => {
         message: 'Prestataire non trouvé'
       });
     }
-    
-    // Calculer les frais de plateforme
-    const fees = PaymentService.calculatePlatformFee(price);
-    
-    // Créer le payment intent si pas déjà fourni
-    let finalPaymentIntentId = paymentIntentId;
-    let finalTranzilaIndex   = tranzilaIndex || null;
-    let finalAuthnumber      = authnumber    || null;
-    
-    if (!finalPaymentIntentId) {
-      console.log('💳 Création du payment intent...');
-      const paymentResult = await PaymentService.createPaymentIntent({
-        amount: fees.totalFee,
-        currency: 'ILS',
-        metadata: {
-          clientId: req.user.id,
-          providerId: providerId,
-          serviceType: serviceType,
-          servicePrice: price
-        }
-      });
-      
-      if (!paymentResult.success) {
-        return res.status(400).json({
-          success: false,
-          message: paymentResult.message || 'Échec de création du paiement'
+
+    // ✅ LOGIQUE PREMIÈRE COMMANDE GRATUITE
+    const isFreeOrder = !client.firstOrderUsed;
+
+    let finalPaymentIntentId = paymentIntentId || null;
+    let finalTranzilaIndex   = tranzilaIndex   || null;
+    let finalAuthnumber      = authnumber      || null;
+    let finalPaymentMethod   = bodyPaymentMethod || 'card';
+    let finalPaymentStatus   = 'held';
+    let finalPaymentAmount   = 0;
+
+    if (isFreeOrder) {
+      // ✅ Première commande : bypass total Tranzila
+      console.log('🎁 Première commande gratuite pour client:', req.user.id);
+      finalPaymentIntentId = `free_${req.user.id}_${Date.now()}`;
+      finalPaymentMethod   = 'free';
+      finalPaymentStatus   = 'free';
+      finalPaymentAmount   = 0;
+    } else {
+      // Commande payante normale
+      const fees = PaymentService.calculatePlatformFee(price, serviceType);
+      finalPaymentAmount = fees.totalFee;
+
+      if (!finalPaymentIntentId) {
+        console.log('💳 Création du payment intent...');
+        const paymentResult = await PaymentService.createPaymentIntent({
+          amount: fees.totalFee,
+          currency: 'ILS',
+          metadata: {
+            clientId:   req.user.id,
+            providerId,
+            serviceType,
+            servicePrice: price
+          }
         });
+        
+        if (!paymentResult.success) {
+          return res.status(400).json({
+            success: false,
+            message: paymentResult.message || 'Échec de création du paiement'
+          });
+        }
+        
+        finalPaymentIntentId = paymentResult.paymentIntent.id;
+        finalTranzilaIndex   = paymentResult.paymentIntent.tranzilaIndex || null;
+        finalAuthnumber      = paymentResult.paymentIntent.authnumber    || null;
       }
-      
-      finalPaymentIntentId = paymentResult.paymentIntent.id;
-      finalTranzilaIndex   = paymentResult.paymentIntent.tranzilaIndex || null;
-      finalAuthnumber      = paymentResult.paymentIntent.authnumber    || null;
     }
 
     console.log('💾 tranzilaIndex sauvegardé en DB:', finalTranzilaIndex);
     
-    // Créer la demande/réservation
+    // Créer la réservation
     const request = await Request.create({
       client: req.user.id,
       provider: providerId,
       serviceType,
-      propertyType: propertyType || 'appartement',
-      status: 'pending_payment',
+      propertyType: propertyType || 'דירה',
+      status: 'pending',  // ✅ directly pending (paiement déjà géré)
       scheduledDate: new Date(scheduledDate),
       address: address || 'À définir',
       description: description || '',
-      price: price,
+      price,
       propertyVideoUrl: client.propertyVideo?.url || null,
       payment: {
         intentId:      finalPaymentIntentId,
-        tranzilaIndex: finalTranzilaIndex,   // ✅ FIX — sauvegardé en DB (était toujours null avant)
-        authnumber:    finalAuthnumber,      // ✅ FIX — sauvegardé en DB
-        status:        'held',
-        amount:        fees.totalFee,
-        method:        'card',
+        tranzilaIndex: finalTranzilaIndex,
+        authnumber:    finalAuthnumber,
+        status:        finalPaymentStatus,
+        amount:        finalPaymentAmount,
+        method:        finalPaymentMethod,
         paidAt:        new Date()
       },
       providerPhoneVisible: false
     });
     
-    // Peupler les données du provider
     await request.populate('provider', 'firstName lastName phone email');
-    
-    console.log('✅ Réservation créée:', request._id);
-    console.log('   tranzilaIndex en DB:', request.payment.tranzilaIndex);
-    if (client.propertyVideo?.url) {
-      console.log('📹 Vidéo attachée:', client.propertyVideo.url);
+
+    // ✅ Marquer la première commande comme utilisée
+    if (isFreeOrder) {
+      await User.findByIdAndUpdate(req.user.id, { firstOrderUsed: true });
+      console.log('✅ firstOrderUsed marqué true pour client:', req.user.id);
     }
     
-    // Envoyer la notification au prestataire
+    console.log('✅ Réservation créée:', request._id);
+
+    // Notification au prestataire
     if (provider.pushToken) {
-      console.log('📤 Envoi notification au prestataire...');
-      
       const clientName = `${client.firstName} ${client.lastName}`;
-      
       await notificationService.notifyProviderNewBooking(provider.pushToken, {
-        bookingId: request._id.toString(),
-        clientId: client._id.toString(),
-        clientName: clientName,
-        serviceType: serviceType,
-        scheduledDate: scheduledDate,
-        price: price
+        bookingId:     request._id.toString(),
+        clientId:      client._id.toString(),
+        clientName,
+        serviceType,
+        scheduledDate,
+        price
       });
     } else {
       console.log('⚠️ Prestataire sans push token');
@@ -508,7 +465,9 @@ exports.createBooking = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Réservation créée avec succès',
-      booking: request
+      booking: request,
+      // ✅ Info utile pour le frontend
+      isFreeOrder
     });
     
   } catch (error) {
@@ -531,8 +490,6 @@ exports.getUserBookings = async (req, res, next) => {
     const bookings = await Request.find({ client: req.user.id })
       .populate('provider', 'firstName lastName phone email rating hourlyRate')
       .sort({ createdAt: -1 });
-    
-    console.log(`✅ ${bookings.length} réservations trouvées`);
     
     const formattedBookings = bookings.map(request => ({
       _id: request._id,

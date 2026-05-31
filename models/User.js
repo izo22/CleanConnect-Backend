@@ -1,5 +1,4 @@
 // models/User.js
-// ✅ CE FICHIER EST DÉJÀ CORRECT
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -47,7 +46,6 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  // Champs address et city pour la compatibilité avec le frontend
   address: {
     type: String,
     default: ''
@@ -68,7 +66,6 @@ const UserSchema = new mongoose.Schema({
     default: 'client'
   },
   addresses: [AddressSchema],
-  // Vidéo de la propriété
   propertyVideo: {
     url: {
       type: String,
@@ -88,10 +85,14 @@ const UserSchema = new mongoose.Schema({
     enum: ['fr', 'en', 'he', 'ar'],
     default: 'he'
   },
-  // Token pour les notifications push
   pushToken: {
     type: String,
     default: null
+  },
+  // ✅ NOUVEAU : première commande gratuite
+  firstOrderUsed: {
+    type: Boolean,
+    default: false
   },
   createdAt: {
     type: Date,
@@ -99,25 +100,21 @@ const UserSchema = new mongoose.Schema({
   }
 });
 
-// Hacher le mot de passe avant l'enregistrement
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     next();
   }
-
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Vérifier le mot de passe
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// ✅ CORRECT : Génération JWT avec 'role'
 UserSchema.methods.getSignedJwtToken = function () {
   return jwt.sign(
-    { id: this._id, role: this.role },  // ✅ Déjà correct
+    { id: this._id, role: this.role },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE || '30d' }
   );
