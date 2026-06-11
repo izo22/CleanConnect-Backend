@@ -1,7 +1,16 @@
 // server.js
+// ✅ HARDENING PRÉ-PROD :
+//    - helmet (headers de sécurité)
+//    - rate limiting global + strict sur /api/auth (anti brute-force)
+//    - CORS nettoyé (credentials retiré — inutile pour une app mobile)
+//    - /payment-test désactivé en production
+//    - /my-ip supprimé (temporaire Tranzila, plus nécessaire)
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -10,19 +19,51 @@ const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 const app = express();
 
+// Render est derrière un proxy → nécessaire pour que le rate limiter
+// voie la vraie IP client et pas celle du proxy
+app.set('trust proxy', 1);
+
+// ── Sécurité ──────────────────────────────────────────────────────────────────
+app.use(helmet());
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
 }));
+
+// Rate limit global : 300 requêtes / 15 min / IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Trop de requêtes, réessayez plus tard' },
+});
+app.use('/api', globalLimiter);
+
+// Rate limit strict sur l'auth : 15 tentatives / 15 min / IP (anti brute-force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Trop de tentatives, réessayez dans 15 minutes' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+
 app.use(express.json());
 
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.url}`);
   next();
 });
-app.use('/payment-test', require('./routes/paymentTest'));
+
+// ── Page de test paiement Tranzila : JAMAIS en production ─────────────────────
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/payment-test', require('./routes/paymentTest'));
+}
 
 const connectDB = require('./config/db');
 connectDB();
@@ -48,18 +89,6 @@ app.use('/api/notifications',    notificationRoutes);
 
 app.get('/', (req, res) => {
   res.send('API CleanConnect est en ligne');
-});
-
-// ✅ TEMPORAIRE — Récupérer l'IP publique de Render pour whitelist Tranzila
-app.get('/my-ip', async (req, res) => {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    console.log('🌐 IP publique Render:', data.ip);
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Impossible de récupérer l\'IP' });
-  }
 });
 
 // ✅ FIX — 404 doit appeler next() pour que l'error handler global le reçoive
