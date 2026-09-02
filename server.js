@@ -29,7 +29,7 @@ app.use(helmet());
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
 }));
 
 // Rate limit global : 300 requêtes / 15 min / IP
@@ -79,6 +79,7 @@ const providerRoutes       = require('./routes/providerRoutes');
 const publicProviderRoutes = require('./routes/publicProviderRoutes');
 const bookingRoutes        = require('./routes/bookingRoutes');
 const notificationRoutes   = require('./routes/notificationRoutes');
+const adminRoutes          = require('./routes/adminRoutes');
 
 app.use('/api/public/providers', publicProviderRoutes);
 app.use('/api/auth',             authRoutes);
@@ -86,6 +87,7 @@ app.use('/api/users',            userRoutes);
 app.use('/api/providers',        providerRoutes);
 app.use('/api/bookings',         bookingRoutes);
 app.use('/api/notifications',    notificationRoutes);
+app.use('/api/admin',            adminRoutes);
 
 app.get('/', (req, res) => {
   res.send('API CleanConnect est en ligne');
